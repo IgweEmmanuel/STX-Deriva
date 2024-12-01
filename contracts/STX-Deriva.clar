@@ -38,3 +38,59 @@
       leverage: uint,
       collateral: uint,
       liquidation-price: uint })
+
+;; Position counter
+(define-data-var position-counter uint u0)
+
+;; Contract admin
+(define-data-var contract-owner principal tx-sender)
+
+;; Price oracle (simplified for testnet)
+(define-data-var current-price uint u0)
+
+;; -----------------------------
+;; Read-Only Functions
+;; -----------------------------
+
+(define-read-only (get-balance (user principal))
+    (default-to 
+        { stx-balance: u0 }
+        (map-get? balances user)))
+
+(define-read-only (get-position (position-id uint))
+    (map-get? positions position-id))
+
+(define-read-only (get-current-price)
+    (ok (var-get current-price)))
+
+;; Calculate liquidation price
+(define-read-only (calculate-liquidation-price 
+    (entry-price uint) 
+    (position-type uint) 
+    (leverage uint))
+    (if (is-eq position-type TYPE-LONG)
+        ;; Long position liquidation price
+        (ok (/ (* entry-price (- u100 (/ u100 leverage))) u100))
+        ;; Short position liquidation price
+        (ok (/ (* entry-price (+ u100 (/ u100 leverage))) u100))))
+
+;; -----------------------------
+;; Public Functions
+;; -----------------------------
+
+;; Deposit collateral
+(define-public (deposit-collateral (amount uint))
+    (let ((current-balance (get stx-balance (get-balance tx-sender))))
+        (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+        (ok (map-set balances 
+            tx-sender 
+            { stx-balance: (+ current-balance amount) }))))
+
+;; Withdraw collateral
+(define-public (withdraw-collateral (amount uint))
+    (let ((current-balance (get stx-balance (get-balance tx-sender))))
+        (asserts! (>= current-balance amount) ERR-INSUFFICIENT-BALANCE)
+        (try! (as-contract (stx-transfer? amount tx-sender tx-sender)))
+        (ok (map-set balances 
+            tx-sender 
+            { stx-balance: (- current-balance amount) }))))
